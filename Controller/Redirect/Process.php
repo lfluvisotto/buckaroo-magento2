@@ -188,10 +188,10 @@ class Process extends \Magento\Framework\App\Action\Action
                 /**
                  * @noinspection PhpUndefinedMethodInspection
                  */
-                if (!$this->order->getEmailSent()
-                    && ($this->accountConfig->getOrderConfirmationEmail($store) === "1"
-                        || $paymentMethod->getConfigData('order_email', $store) === "1"
-                    )
+                if (!$this->order->getEmailSent() &&
+                    ($this->accountConfig->getOrderConfirmationEmail($store) === "1" ||
+                        $paymentMethod->getConfigData('order_email', $store) === "1") &&
+                    $statusCode === $this->helper->getStatusCode('TIG_BUCKAROO_STATUSCODE_SUCCESS')
                 ) {
                     $this->orderSender->send($this->order, true);
                 }
