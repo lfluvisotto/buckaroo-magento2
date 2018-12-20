@@ -177,6 +177,70 @@ class Process extends \Magento\Framework\App\Action\Action
                     if ($pendingStatus) {
                         $this->order->setStatus($pendingStatus);
                         $this->order->save();
+
+                        /*
+                         * This code is specific for the return via callback for Bancontact / Mister Cash if status
+                         * code is 190 in the checkout success page
+                         */
+                        if (isset($this->response['brq_payment_method'])) {
+                            // If you access the RedirectURL of transaction, you will need of key brq_transaction_method
+                            $this->response['brq_transaction_method'] = $this->response['brq_payment_method'];
+                        }
+
+                        if (
+                            (isset($this->response['brq_transaction_method']) || isset($this->response['brq_payment_method'])) &&
+                            $statusCode === $this->helper->getStatusCode('TIG_BUCKAROO_STATUSCODE_SUCCESS')
+                        ) {
+                            $transactionKey = $this->response['brq_transactions'];
+
+                            /**
+                             * Save the transaction's response as additional info for the transaction.
+                             */
+                            $rawInfo = $this->helper->getTransactionAdditionalInfo($this->response);
+
+                            /**
+                             * @var \Magento\Sales\Model\Order\Payment $payment
+                             */
+                            $payment->setTransactionAdditionalInfo(
+                                Transaction::RAW_DETAILS,
+                                $rawInfo
+                            );
+
+                            /**
+                             * Save the payment's transaction key.
+                             */
+                            $payment->setTransactionId($transactionKey . '-capture');
+                            $payment->setParentTransactionId($transactionKey);
+                            $payment->setAdditionalInformation(
+                                BuckarooAbstractMethod::BUCKAROO_ORIGINAL_TRANSACTION_KEY_KEY,
+                                $transactionKey
+                            );
+                            $payment->registerCaptureNotification($this->order->getGrandTotal());
+                            $payment->save();
+
+                            $this->order->addStatusHistoryComment('Total amount of ' .
+                                $this->order->getBaseCurrency()->formatTxt(floatval($this->response['brq_amount'])) .
+                                ' has been paid');
+
+                            $this->order->setState(Order::STATE_PROCESSING)
+                                ->setStatus(Order::STATE_PROCESSING);
+
+                            $this->order->save();
+
+                            /** @var \Magento\Sales\Model\Order\Invoice $invoice */
+                            foreach ($this->order->getInvoiceCollection() as $invoice) {
+                                if (!isset($this->response['brq_transactions'])) {
+                                    continue;
+                                }
+
+                                $invoice->setTransactionId($this->response['brq_transactions'])
+                                    ->save();
+
+                                if (!$invoice->getEmailSent() && $this->configAccount->getInvoiceEmail($this->order->getStore())) {
+                                    $this->invoiceSender->send($invoice, true);
+                                }
+                            }
+                        }
                     }
                 }
 
